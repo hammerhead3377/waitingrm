@@ -1,0 +1,105 @@
+version: '3.8'
+
+# ─── Networks ────────────────────────────────────────────────────────────────
+# internal_net: overlay/bridge with internal:true — no container gets raw internet
+#   nginx, auth-validator, ollama, open-webui all live here
+#   nginx's *published ports* still accept LAN traffic (port binding is host-level)
+#
+# telegram-bot has NO network clause → lands on default bridge → outbound internet
+#   for Telegram long-polling, but zero visibility into internal_net services
+#
+# For Docker Swarm: change internal_net driver to 'overlay' and run:
+#   docker swarm init
+#   docker network create --driver overlay --internal internal_net
+#   docker stack deploy -c docker-compose.yml openclaw
+
+services:
+
+  # ── Gateway ──────────────────────────────────────────────────────────────
+  nginx:
+    build: ./nginx
+    ports:
+      - "${LAN_IP:-0.0.0.0}:8443:443"   # HTTPS — LAN only
+      - "${LAN_IP:-0.0.0.0}:8080:80"    # HTTP → redirect to HTTPS
+    volumes:
+      - nginx_certs:/etc/nginx/certs     # persists generated self-signed cert
+    networks:
+      - internal_net
+    environment:
+      - LAN_IP=${LAN_IP:-127.0.0.1}
+    depends_on:
+      - auth-validator
+      - ollama
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  # ── Auth micro-service ────────────────────────────────────────────────────
+  auth-validator:
+    build: ./auth
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ALLOWED_USER_IDS=${ALLOWED_USER_IDS}
+    networks:
+      - internal_net
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+  # ── Telegram bot (outbound polling only) ─────────────────────────────────
+  telegram-bot:
+    build: ./bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - MINI_APP_URL=${MINI_APP_URL}
+      - ALLOWED_USER_IDS=${ALLOWED_USER_IDS}
+    # Deliberately no 'networks:' — uses Docker default bridge for internet access
+    # Cannot reach internal_net services (ollama, auth, webui)
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  # ── LLM backend ──────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - internal_net
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        reservations:
+          generic_resources:
+            - discrete_resource_spec:
+                kind: 'NVIDIA-GPU'
+                value: 1
+
+  # ── Optional Web UI (auth-gated at /webui/) ───────────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_AUTH=True
+    volumes:
+      - open_webui_data:/app/backend/data
+    networks:
+      - internal_net
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+volumes:
+  nginx_certs:
+  ollama_data:
+  open_webui_data:
+
+networks:
+  internal_net:
+    driver: bridge      # change to 'overlay' for Swarm (see note above)
+    internal: true      # blocks all container→internet routing
