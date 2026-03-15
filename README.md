@@ -1,8 +1,8 @@
-# Openclaw
+# WaitingRm
 
-> A zero-exposure AI gateway: self-hosted Ollama behind a Docker network with Telegram as the auth and UI layer.
+> The Doctor's waiting room for your AI stack — nobody gets past the desk without Telegram verification.
 
-No inbound ports. No shared secrets in client code. Access your private LLM stack from anywhere via a Telegram Mini App — cryptographically verified, LAN-direct.
+Self-hosted Ollama behind a Docker internal network, accessed via Telegram Mini App. No inbound ports. No shared secrets in client code. Cryptographically verified, LAN-direct.
 
 ---
 
@@ -58,8 +58,8 @@ No inbound ports. No shared secrets in client code. Access your private LLM stac
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/openclaw.git
-cd openclaw
+git clone https://github.com/hammerhead3377/waitingrm.git
+cd waitingrm
 cp .env.example .env
 ```
 
